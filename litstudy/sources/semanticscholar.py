@@ -96,8 +96,8 @@ class ScholarDocument(Document):
 S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/"
 S2_QUERY_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 CACHE_FILE = ".semanticscholar"
-MAX_RETRIES = 10
-BACKOFF_FACTOR = 1
+MAX_RETRIES = 3
+BACKOFF_FACTOR = 1.05
 
 def get_retry_session():
     session = requests.Session()
