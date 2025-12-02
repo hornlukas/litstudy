@@ -13,7 +13,7 @@ def test_load_s2_file():
     assert len(docs) == 3
 
     docs = search_semanticscholar("litstudy", session=session)
-    assert any(doc.id.doi == "10.2139/ssrn.4079400" for doc in docs)
+    assert any(doc.id.s2id == "deb329f47bfd3cc053410af62403edf99cfe7f6c" for doc in docs)
 
 
 def test_fetch_semanticscholar():

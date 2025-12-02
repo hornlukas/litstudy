@@ -1,6 +1,9 @@
 from time import sleep
 from typing import Tuple, Optional
 from urllib.parse import urlencode, quote_plus
+
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 import logging
 import requests
 import shelve
@@ -90,38 +93,52 @@ class ScholarDocument(Document):
         return fetch_semanticscholar(id)
 
 
-S2_PAPER_URL = "https://api.semanticscholar.org/v1/paper/"
+S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper/"
 S2_QUERY_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-CACHE_FILE = ".semantischolar"
-DEFAULT_TIMEOUT = 3.05  # 100 requests per 5 minutes
+CACHE_FILE = ".semanticscholar"
+MAX_RETRIES = 10
+BACKOFF_FACTOR = 1
+
+def get_retry_session():
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=MAX_RETRIES,
+        backoff_factor=BACKOFF_FACTOR,
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
-def request_query(query, offset, limit, cache, session, timeout=DEFAULT_TIMEOUT):
+def request_query(query, offset, limit, cache, session):
     params = urlencode(dict(query=query, offset=offset, limit=limit))
     url = f"{S2_QUERY_URL}?{params}"
 
     if url in cache:
         return cache[url]
 
-    reply = session.get(url)
-    response = reply.json()
+    try:
+        response = session.get(url).json()
+        if "data" not in response:
+            msg = response.get("error") or response.get("message") or "unknown"
+            raise Exception(f"error while fetching {url}: {msg}")
+    except Exception as e:
+        raise Exception(f"error while fetching {url}: {e}")
 
-    if "data" not in response:
-        msg = response.get("error") or response.get("message") or "unknown"
-        raise Exception(f"error while fetching {reply.url}: {msg}")
 
     cache[url] = response
     return response
 
 
-def request_paper(key, cache, session, timeout=DEFAULT_TIMEOUT):
+def request_paper(key, cache, session):
     url = S2_PAPER_URL + quote_plus(key)
 
     if url in cache:
         return cache[url]
 
     try:
-        sleep(timeout)
         data = session.get(url).json()
     except Exception as e:
         logging.warning(f"failed to retrieve {key}: {e}")
@@ -156,8 +173,10 @@ def fetch_semanticscholar(key: set, *, session=None) -> Optional[Document]:
     if key is None:
         return None
 
+    should_close_session = False
     if session is None:
-        session = requests.Session()
+        session = get_retry_session()
+        should_close_session = True
 
     with shelve.open(CACHE_FILE) as cache:
         if isinstance(key, DocumentIdentifier):
@@ -175,6 +194,9 @@ def fetch_semanticscholar(key: set, *, session=None) -> Optional[Document]:
                 data = request_paper(f"arXiv:{key.arxivid}", cache, session)
         else:
             data = request_paper(key, cache, session)
+
+    if should_close_session:
+        session.close()
 
     if data is None:
         return None
@@ -217,8 +239,10 @@ def search_semanticscholar(
     if not query:
         raise Exception("no query specified in `search_semanticscholar`")
 
+    should_close_session = False
     if session is None:
-        session = requests.Session()
+        session = get_retry_session()
+        should_close_session = True
 
     docs = []
 
@@ -254,5 +278,8 @@ def search_semanticscholar(
                 docs.append(ScholarDocument(doc))
             else:
                 logging.warn(f"could not find paper id {paper_id}")
+
+    if should_close_session:
+        session.close()
 
     return DocumentSet(docs)
