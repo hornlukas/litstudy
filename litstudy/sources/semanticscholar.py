@@ -99,6 +99,7 @@ CACHE_FILE = ".semanticscholar"
 MAX_RETRIES = 3
 BACKOFF_FACTOR = 1.05
 
+
 def get_retry_session():
     session = requests.Session()
     retry_strategy = Retry(
@@ -126,7 +127,6 @@ def request_query(query, offset, limit, cache, session):
             raise Exception(f"error while fetching {url}: {msg}")
     except Exception as e:
         raise Exception(f"error while fetching {url}: {e}")
-
 
     cache[url] = response
     return response
